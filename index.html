@@ -207,6 +207,12 @@ button .bi, .tabs .bi, .seg .bi, .chip .bi { align-items: center; text-align: ce
 .note.err { color: var(--err); }
 .grp .gh small { display: block; font-size: 10.5px; font-weight: 400; color: var(--mute); }
 .export { gap: 10px; } .export .primary .bi { align-items: center; }
+.seg.main { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.seg.main button { margin-left: 0; margin-top: -2px; min-width: 0; }
+.seg.main button:nth-child(-n+3) { margin-top: 0; }
+.seg.main button:nth-child(n+2) { margin-left: -2px; }
+.seg.main button:nth-child(4) { grid-column: 1 / -1; margin-left: 0; }
+.sechead { margin-top: 14px; }
 </style>
 
 <main id="app"></main>
@@ -871,7 +877,7 @@ function snbtParse(src) {
 
 /* ---------- state ---------- */
 const S = { loaded: false, demo: false, fileName: '', zipBuf: null, ents: [], prefix: '', levelVersion: 10, level: null, players: [], dirtyPlayers: new Set(), levelDirty: false,
-  db: null, tab: 'world', pi: 0, sec: 'hot', sel: null, give: new Map(), addPack: true, originalName: '', filter: '', edEnch: {}, edName: '', givePreset: 'none', open: new Set(), cap: {}, kitErr: '' };
+  db: null, tab: 'world', pi: 0, sec: 'inv', sel: null, give: new Map(), addPack: true, originalName: '', filter: '', edEnch: {}, edName: '', givePreset: 'none', open: new Set(), cap: {}, kitErr: '' };
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function toast(msg, kind) { const t = $('#toast'); t.textContent = msg; t.dataset.kind = kind || ''; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 4800); }
@@ -923,12 +929,16 @@ function loadDemo() {
 /* ---------- inventory helpers ---------- */
 /* slots are real NBT slot numbers; hotbar = Inventory 0–8, inventory = Inventory 9–35 */
 const SECS = {
-  hot: { name: 'Inventory', off: 0, size: 9, en: 'Hotbar', th: 'แถบเร็ว' },
-  inv: { name: 'Inventory', off: 9, size: 27, en: 'Inventory', th: 'ช่องเก็บของ' },
   ender: { name: 'EnderChestInventory', off: 0, size: 27, en: 'Ender Chest', th: 'เอนเดอร์เชสต์' },
   armor: { name: 'Armor', off: 0, size: 4, en: 'Armor', th: 'เกราะ' },
-  off: { name: 'Offhand', off: 0, size: 1, en: 'Offhand', th: 'มือรอง' }
+  off: { name: 'Offhand', off: 0, size: 1, en: 'Offhand', th: 'มือรอง' },
+  inv: { name: 'Inventory', off: 0, size: 36, en: 'Inventory', th: 'ช่องเก็บของ + แถบเร็ว' }
 };
+/* the inventory tab shows two labelled blocks, like in game: the 27 main slots, then the 9-slot hotbar */
+const secGroups = sec => sec === 'inv'
+  ? [{ en: 'Inventory', th: 'ช่องเก็บของ', off: 9, size: 27 }, { en: 'Hotbar', th: 'แถบเร็ว', off: 0, size: 9 }]
+  : [{ en: SECS[sec].en, th: SECS[sec].th, off: SECS[sec].off, size: SECS[sec].size }];
+const slotLabel = (sec, s) => sec === 'inv' ? (s < 9 ? 'Hotbar ' + (s + 1) : 'Inventory ' + (s - 8)) : SECS[sec].en + ' ' + (s + 1);
 function secList(p, sec) {
   const name = SECS[sec].name;
   let l = nget(p.root, name);
@@ -988,14 +998,14 @@ function setSlot(p, sec, slot, id, count, damage, ench, cname) {
 }
 function stacksFor(id, count) { const m = maxStack(id); const out = []; while (count > 0) { const c = Math.min(m, count); out.push(c); count -= c; } return out; }
 function giveToPlayer(p) {
-  let placed = 0, lost = 0; const list = secList(p, 'hot');
+  let placed = 0, lost = 0; const list = secList(p, 'inv');
   for (const [id, count] of S.give) {
     for (const c of stacksFor(id, count)) {
       let slot = -1;
       for (let s = 0; s < 36; s++) if (!itemInfo(slotEntry(list, s))) { slot = s; break; }
       if (slot < 0) { lost += c; continue; }
       const en = S.givePreset === 'compat' ? enchMapCompat(id) : S.givePreset === 'all' ? enchMapAll() : undefined;
-      setSlot(p, 'hot', slot, id, c, 0, en); placed += c;
+      setSlot(p, 'inv', slot, id, c, 0, en); placed += c;
     }
   }
   return { placed, lost };
@@ -1124,22 +1134,23 @@ function playersTab() {
   const p = S.players[Math.min(S.pi, S.players.length - 1)];
   const label = k => k === '~local_player' ? 'Main player' : 'Player …' + k.slice(-6);
   const pos = posOf(p); const dim = nget(p.root, 'DimensionId')?.v;
-  const sc = SECS[S.sec]; const list = secList(p, S.sec);
-  let cells = '';
-  for (let s = sc.off; s < sc.off + sc.size; s++) {
+  const sc = SECS[S.sec]; const list = secList(p, S.sec); const groups = secGroups(S.sec);
+  const cellFor = s => {
     const raw = slotEntry(list, s); const it = itemInfo(raw);
     const sel = S.sel === s ? ' sel' : '';
     const en = it && Object.keys(readEnch(raw)).length ? ' ench' : '';
-    cells += it ? `<button class="slot${sel}${en}" data-slot="${s}" title="${esc(nice(it.name))}">${icon(it.name, 'ic')}<i>${it.count > 1 ? it.count : ''}</i></button>`
-      : `<button class="slot empty${sel}" data-slot="${s}" aria-label="Empty slot ${s - sc.off + 1}"></button>`;
-  }
+    return it ? `<button class="slot${sel}${en}" data-slot="${s}" title="${esc(nice(it.name))}">${icon(it.name, 'ic')}<i>${it.count > 1 ? it.count : ''}</i></button>`
+      : `<button class="slot empty${sel}" data-slot="${s}" aria-label="Empty ${slotLabel(S.sec, s)}"></button>`;
+  };
+  const gridsHtml = groups.map(g => { let cells = ''; for (let s = g.off; s < g.off + g.size; s++) cells += cellFor(s);
+    return `<h3 class="sechead">${g.en.toUpperCase()} <small>${g.th} · slots ${g.off + 1}–${g.off + g.size}</small></h3><div class="slots ${S.sec === 'inv' ? 'inv' : S.sec}">${cells}</div>`; }).join('');
   const rows = [];
-  for (let s = sc.off; s < sc.off + sc.size; s++) { const raw = slotEntry(list, s); const it = itemInfo(raw); if (it) { const en = Object.keys(readEnch(raw)).length; rows.push(`<li><button data-slot="${s}" class="${S.sel === s ? 'sel' : ''}">${icon(it.name, 'ic sm')}<span class="mono">${sc.en} ${s - sc.off + 1}</span><span>${esc(nice(it.name))}${en ? ' <em>✦' + en + '</em>' : ''}</span><b>×${it.count}</b></button></li>`); } }
+  for (const g of groups) for (let s = g.off; s < g.off + g.size; s++) { const raw = slotEntry(list, s); const it = itemInfo(raw); if (it) { const en = Object.keys(readEnch(raw)).length; rows.push(`<li><button data-slot="${s}" class="${S.sel === s ? 'sel' : ''}">${icon(it.name, 'ic sm')}<span class="mono">${slotLabel(S.sec, s)}</span><span>${esc(nice(it.name))}${en ? ' <em>✦' + en + '</em>' : ''}</span><b>×${it.count}</b></button></li>`); } }
   let editor = '';
   if (S.sel != null) {
     const raw = slotEntry(list, S.sel); const cur = itemInfo(raw);
     editor = `<form class="editor" id="ed" autocomplete="off">
-      <div class="ed-h"><strong>Slot ${S.sel - sc.off + 1}</strong><span class="lbl">${sc.en} · ${sc.th}</span></div>
+      <div class="ed-h"><strong>${slotLabel(S.sec, S.sel)}</strong><span class="lbl">${S.sec === 'inv' ? (S.sel < 9 ? 'แถบเร็ว' : 'ช่องเก็บของ') : sc.th}</span></div>
       <label class="fld"><span>${bi('Item (id)', 'ไอเทม')}</span><input id="ed-id" type="text" inputmode="url" autocapitalize="none" spellcheck="false" value="${esc(cur ? cur.name : '')}" placeholder="e.g. diamond or minecraft:diamond"></label>
       ${S.sec === 'armor' ? armorPicker(cur) : '<div class="sugg" id="sugg"></div>'}
       <div class="grid2">
@@ -1156,9 +1167,8 @@ function playersTab() {
   <div class="chips">${S.players.map((q, i) => `<button class="chip" aria-pressed="${i === S.pi}" data-pi="${i}">${esc(label(q.key))}</button>`).join('')}</div>
   <p class="mono key">${esc(p.key)}</p>
   ${pos ? `<div class="grid3">${['X', 'Y', 'Z'].map((a, i) => `<label class="fld"><span>${bi('Position ' + a, 'ตำแหน่ง ' + a)}</span><input type="number" step="0.5" data-pos="${i}" value="${Math.round(pos[i] * 100) / 100}"></label>`).join('')}</div><p class="note">Dimension · มิติ: ${DIMS[dim] ?? '–'}</p>` : ''}
-  <div class="seg">${Object.entries(SECS).map(([k, v]) => `<button data-sec="${k}" aria-pressed="${S.sec === k}">${bi(v.en, v.th)}</button>`).join('')}</div>
-  <h3 class="sechead">${sc.en.toUpperCase()} <small>${sc.th} · slots ${sc.off + 1}–${sc.off + sc.size}</small></h3>
-  <div class="slots ${S.sec}">${cells}</div>
+  <div class="seg main">${Object.entries(SECS).map(([k, v]) => `<button data-sec="${k}" aria-pressed="${S.sec === k}">${bi(v.en, v.th)}</button>`).join('')}</div>
+  ${gridsHtml}
   ${editor}
   <ul class="items">${rows.join('') || `<li class="empty">${bi('No items here. Tap an empty slot to add one.', 'ไม่มีไอเทมในส่วนนี้ กดช่องว่างเพื่อใส่ของ')}</li>`}</ul>
   <p class="note">${bi('Newly added items carry no special block data; some block items may need checking in game. If one looks wrong, use the Spawn items tab with commands instead.', 'ไอเทมที่ใส่ใหม่ไม่มีข้อมูลบล็อกพิเศษ บางอย่างอาจต้องตรวจในเกม ถ้าผิดให้ใช้แท็บเสกของแบบคำสั่งแทน')}</p>`;
@@ -1365,14 +1375,16 @@ async function exportWorld() {
       packs.push({ pack_id: manifest.header.uuid, version: [1, 0, 0] });
       replace.set(prefix + 'world_behavior_packs.json', TE.encode(JSON.stringify(packs)));
     }
+    /* Minecraft needs level.dat and db/ at the ROOT of the .mcworld, so strip any top folder (e.g. "My World/") */
+    const root = n => n.slice(prefix.length);
     const parts = [];
     for (const e of ents) {
-      if (replace.has(e.name)) continue;
-      parts.push({ name: e.name, method: e.method, crc: e.crc, csize: e.csize, usize: e.usize, time: e.time, date: e.date, data: zipRaw(buf, e) });
+      if (replace.has(e.name) || !e.name.startsWith(prefix) || e.name.endsWith('/') || /(^|\/)(\.DS_Store|__MACOSX)(\/|$)/.test(e.name)) continue;
+      parts.push({ name: root(e.name), method: e.method, crc: e.crc, csize: e.csize, usize: e.usize, time: e.time, date: e.date, data: zipRaw(buf, e) });
     }
     for (const [name, data] of [...replace, ...extra]) {
       const c = await deflateRaw(data);
-      parts.push({ name, method: 8, crc: crc32(data), csize: c.length, usize: data.length, time: now.time, date: now.date, data: c });
+      parts.push({ name: root(name), method: 8, crc: crc32(data), csize: c.length, usize: data.length, time: now.time, date: now.date, data: c });
     }
     const blob = new Blob(zipWrite(parts), { type: 'application/zip' });
     const base = (S.fileName || 'world').replace(/\.(zip|mcworld)$/i, ''); const ext = S.fmt === 'zip' ? '.zip' : '.mcworld';
