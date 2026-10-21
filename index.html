@@ -213,8 +213,16 @@ button .bi, .tabs .bi, .seg .bi, .chip .bi { align-items: center; text-align: ce
 .seg.main button:nth-child(n+2) { margin-left: -2px; }
 .seg.main button:nth-child(4) { grid-column: 1 / -1; margin-left: 0; }
 .sechead { margin-top: 14px; }
+#splash { position: fixed; inset: 0; z-index: 99; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: var(--bg); transition: opacity .45s ease, visibility .45s; }
+#splash.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+#splash h1 { font: 700 clamp(40px, 14vw, 120px)/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); margin: 0; }
+#splash .bar2 { width: min(240px, 60vw); height: 6px; background: var(--slot); overflow: hidden; }
+#splash .bar2 i { display: block; height: 100%; width: 40%; background: var(--accent); animation: sl 1s ease-in-out infinite alternate; }
+@keyframes sl { from { transform: translateX(-10%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) { #splash .bar2 i { animation: none; width: 100%; } #splash { transition: none; } }
 </style>
 
+<div id="splash" role="status" aria-label="Loading"><h1>Maximum</h1><div class="bar2"><i></i></div></div>
 <main id="app"></main>
 <div id="toast" hidden role="status"></div>
 <script>
@@ -1400,4 +1408,6 @@ async function exportWorld() {
 render();
 
 </script>
+<script>(function(){var s=document.getElementById("splash");if(!s)return;var t0=Date.now();function hide(){s.classList.add("gone");setTimeout(function(){s.remove()},600)}function go(){var w=Math.max(0,1400-(Date.now()-t0));setTimeout(hide,w)}if(document.readyState==="complete")go();else window.addEventListener("load",go);setTimeout(hide,5000)})()</script>
+
 </body></html>
